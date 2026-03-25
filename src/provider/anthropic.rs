@@ -194,18 +194,9 @@ impl StreamProvider for AnthropicProvider {
                                 "message_stop" => break,
                                 "ping" => {}
                                 "error" => {
-                                    warn!("Anthropic stream error: {}", msg.data);
-                                    let err_msg = Message::Assistant {
-                                        content: vec![Content::Text { text: String::new() }],
-                                        stop_reason: StopReason::Error,
-                                        model: config.model.clone(),
-                                        provider: "anthropic".into(),
-                                        usage: usage.clone(),
-                                        timestamp: now_ms(),
-                                        error_message: Some(msg.data),
-                                    };
-                                    let _ = tx.send(StreamEvent::Error { message: err_msg.clone() });
-                                    return Ok(err_msg);
+                                    let provider_err = classify_sse_error_event(&msg.data);
+                                    warn!("Anthropic stream error: {}", provider_err);
+                                    return Err(provider_err);
                                 }
                                 other => {
                                     debug!("Unknown Anthropic event: {}", other);
@@ -213,19 +204,9 @@ impl StreamProvider for AnthropicProvider {
                             }
                         }
                         Some(Err(e)) => {
-                            let err_str = e.to_string();
-                            warn!("SSE error: {}", err_str);
-                            let err_msg = Message::Assistant {
-                                content: vec![Content::Text { text: String::new() }],
-                                stop_reason: StopReason::Error,
-                                model: config.model.clone(),
-                                provider: "anthropic".into(),
-                                usage: usage.clone(),
-                                timestamp: now_ms(),
-                                error_message: Some(err_str),
-                            };
-                            let _ = tx.send(StreamEvent::Error { message: err_msg.clone() });
-                            return Ok(err_msg);
+                            let provider_err = classify_eventsource_error(e).await;
+                            warn!("SSE error: {}", provider_err);
+                            return Err(provider_err);
                         }
                     }
                 }

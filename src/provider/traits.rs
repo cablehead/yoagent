@@ -60,8 +60,11 @@ use serde::{Deserialize, Serialize};
 /// The core provider trait. Implement this for each LLM backend.
 #[async_trait]
 pub trait StreamProvider: Send + Sync {
-    /// Stream a completion. Send events through the channel.
-    /// Returns the final complete assistant message.
+    /// Stream a completion, sending [`StreamEvent`]s through the channel.
+    ///
+    /// On success returns the final complete assistant [`Message`].
+    /// On failure returns a [`ProviderError`] (used by retry logic to decide
+    /// whether the call is retryable).
     async fn stream(
         &self,
         config: StreamConfig,
@@ -112,6 +115,48 @@ impl ProviderError {
     /// Returns true if this error indicates a context overflow.
     pub fn is_context_overflow(&self) -> bool {
         matches!(self, Self::ContextOverflow { .. })
+    }
+}
+
+/// Extract a classified error from a `reqwest_eventsource::Error`.
+///
+/// - `InvalidStatusCode` — reads the response body and classifies via
+///   [`ProviderError::classify()`] (context overflow, rate limit, auth, etc.).
+/// - `Transport` — maps to [`ProviderError::Network`] (retryable).
+/// - All other variants (protocol/parse errors like `StreamEnded`,
+///   `InvalidContentType`, `Utf8`, `Parser`) — maps to [`ProviderError::Other`]
+///   (non-retryable, fail fast).
+pub async fn classify_eventsource_error(error: reqwest_eventsource::Error) -> ProviderError {
+    match error {
+        reqwest_eventsource::Error::InvalidStatusCode(status, response) => {
+            let status_code = status.as_u16();
+            let body = response.text().await.unwrap_or_default();
+            ProviderError::classify(
+                status_code,
+                &format!(
+                    "HTTP {} {}: {}",
+                    status_code,
+                    status.canonical_reason().unwrap_or(""),
+                    body
+                ),
+            )
+        }
+        reqwest_eventsource::Error::Transport(e) => ProviderError::Network(e.to_string()),
+        other => ProviderError::Other(other.to_string()),
+    }
+}
+
+/// Classify an SSE-embedded error event message into a [`ProviderError`].
+///
+/// Checks the error text for known patterns (context overflow, etc.).
+/// Used by providers that receive `"error"` events in the SSE stream.
+pub fn classify_sse_error_event(message: &str) -> ProviderError {
+    if is_context_overflow_message(message) {
+        ProviderError::ContextOverflow {
+            message: message.to_string(),
+        }
+    } else {
+        ProviderError::Api(message.to_string())
     }
 }
 
