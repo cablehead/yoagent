@@ -289,6 +289,7 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
 fn content_to_google_parts(content: &[Content]) -> Vec<serde_json::Value> {
     content
         .iter()
+        .filter(|c| !matches!(c, Content::Text { text } if text.is_empty()))
         .filter_map(|c| match c {
             Content::Text { text } => Some(serde_json::json!({"text": text})),
             Content::Image { data, mime_type } => Some(serde_json::json!({
@@ -387,6 +388,20 @@ mod tests {
         let content = vec![Content::Text {
             text: "hello".into(),
         }];
+        let parts = content_to_google_parts(&content);
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["text"], "hello");
+    }
+
+    #[test]
+    fn test_content_to_google_parts_filters_empty_text() {
+        let content = vec![
+            Content::Text { text: "".into() },
+            Content::Text {
+                text: "hello".into(),
+            },
+            Content::Text { text: "".into() },
+        ];
         let parts = content_to_google_parts(&content);
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0]["text"], "hello");

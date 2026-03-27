@@ -267,6 +267,7 @@ fn build_request_body(
 
                 for c in content {
                     match c {
+                        Content::Text { text } if text.is_empty() => {}
                         Content::Text { text } => {
                             parts.push(serde_json::json!({"type": "text", "text": text}));
                         }
@@ -383,11 +384,14 @@ fn build_request_body(
 fn content_to_openai(content: &[Content]) -> serde_json::Value {
     if content.len() == 1 {
         if let Content::Text { text } = &content[0] {
-            return serde_json::json!(text);
+            if !text.is_empty() {
+                return serde_json::json!(text);
+            }
         }
     }
     let parts: Vec<serde_json::Value> = content
         .iter()
+        .filter(|c| !matches!(c, Content::Text { text } if text.is_empty()))
         .filter_map(|c| match c {
             Content::Text { text } => Some(serde_json::json!({"type": "text", "text": text})),
             Content::Image { data, mime_type } => Some(serde_json::json!({
@@ -529,6 +533,29 @@ mod tests {
         }];
         let result = content_to_openai(&content);
         assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn test_content_to_openai_filters_empty_text() {
+        let content = vec![
+            Content::Text { text: "".into() },
+            Content::Text {
+                text: "hello".into(),
+            },
+            Content::Text { text: "".into() },
+        ];
+        let result = content_to_openai(&content);
+        let parts = result.as_array().unwrap();
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["text"], "hello");
+    }
+
+    #[test]
+    fn test_content_to_openai_single_empty_text_filtered() {
+        let content = vec![Content::Text { text: "".into() }];
+        let result = content_to_openai(&content);
+        let parts = result.as_array().unwrap();
+        assert!(parts.is_empty());
     }
 
     #[test]

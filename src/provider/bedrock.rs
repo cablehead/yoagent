@@ -229,6 +229,7 @@ fn build_bedrock_body(config: &StreamConfig) -> serde_json::Value {
                 // Build content blocks for tool result (text + images)
                 let tool_content: Vec<serde_json::Value> = content
                     .iter()
+                    .filter(|c| !matches!(c, Content::Text { text } if text.is_empty()))
                     .filter_map(|c| match c {
                         Content::Text { text } => Some(serde_json::json!({"text": text})),
                         Content::Image { data, mime_type } => Some(serde_json::json!({
@@ -301,6 +302,7 @@ fn build_bedrock_body(config: &StreamConfig) -> serde_json::Value {
 fn content_to_bedrock(content: &[Content]) -> Vec<serde_json::Value> {
     content
         .iter()
+        .filter(|c| !matches!(c, Content::Text { text } if text.is_empty()))
         .filter_map(|c| match c {
             Content::Text { text } => Some(serde_json::json!({"text": text})),
             Content::Image { data, mime_type } => Some(serde_json::json!({
@@ -407,6 +409,20 @@ mod tests {
         assert_eq!(body["messages"][0]["role"], "user");
         assert!(body["system"].is_array());
         assert_eq!(body["inferenceConfig"]["maxTokens"], 1024);
+    }
+
+    #[test]
+    fn test_content_to_bedrock_filters_empty_text() {
+        let content = vec![
+            Content::Text { text: "".into() },
+            Content::Text {
+                text: "hello".into(),
+            },
+            Content::Text { text: "".into() },
+        ];
+        let blocks = content_to_bedrock(&content);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["text"], "hello");
     }
 
     #[test]
