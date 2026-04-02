@@ -347,21 +347,33 @@ fn build_request_body(
     }
 
     if !config.tools.is_empty() {
-        let tools: Vec<serde_json::Value> = config
+        // Separate server-side tools from regular function tools
+        let has_web_search = config
             .tools
             .iter()
-            .map(|t| {
-                serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters,
-                    }
+            .any(|t| t.name == "web_search" && t.description == "server_tool");
+
+        if has_web_search {
+            // OpenAI web search uses dedicated models (e.g. gpt-4o-search-preview)
+            // that don't support function tools. Send web_search_options only.
+            body["web_search_options"] = serde_json::json!({});
+        } else {
+            let tools: Vec<serde_json::Value> = config
+                .tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        }
+                    })
                 })
-            })
-            .collect();
-        body["tools"] = serde_json::json!(tools);
+                .collect();
+            body["tools"] = serde_json::json!(tools);
+        }
     }
 
     if config.thinking_level != ThinkingLevel::Off && compat.supports_reasoning_effort {
