@@ -108,6 +108,20 @@ impl StreamProvider for AnthropicProvider {
                                                     name,
                                                 });
                                             }
+                                            AnthropicContentBlock::ServerToolUse { .. } => {
+                                                // Server tool uses are handled by the provider,
+                                                // not the agent loop. Use a placeholder.
+                                                while content.len() <= idx {
+                                                    content.push(Content::Text { text: String::new() });
+                                                }
+                                            }
+                                            AnthropicContentBlock::WebSearchToolResult { .. } => {
+                                                // Skip: search results are consumed by the model,
+                                                // not forwarded to the caller
+                                                while content.len() <= idx {
+                                                    content.push(Content::Text { text: String::new() });
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -156,6 +170,9 @@ impl StreamProvider for AnthropicProvider {
                                                 if let Some(Content::Thinking { signature: ref mut s, .. }) = content.get_mut(idx) {
                                                     *s = Some(signature);
                                                 }
+                                            }
+                                            AnthropicDelta::CitationsDelta { .. } => {
+                                                // Skip citation deltas for now
                                             }
                                         }
                                     }
@@ -380,11 +397,19 @@ fn build_request_body(config: &StreamConfig, is_oauth: bool) -> serde_json::Valu
             .tools
             .iter()
             .map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "input_schema": t.parameters,
-                })
+                // Server-side tools (web search) use a different format
+                if t.name == "web_search" && t.description == "server_tool" {
+                    serde_json::json!({
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                    })
+                } else {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.parameters,
+                    })
+                }
             })
             .collect();
         if caching_enabled && cache_tools {
@@ -492,6 +517,15 @@ enum AnthropicContentBlock {
     },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String },
+    #[serde(rename = "server_tool_use")]
+    ServerToolUse {
+        #[allow(dead_code)]
+        id: String,
+        #[allow(dead_code)]
+        name: String,
+    },
+    #[serde(rename = "web_search_tool_result")]
+    WebSearchToolResult {},
 }
 
 #[derive(Deserialize)]
@@ -512,6 +546,8 @@ enum AnthropicDelta {
     InputJsonDelta { partial_json: String },
     #[serde(rename = "signature_delta")]
     SignatureDelta { signature: String },
+    #[serde(rename = "citations_delta")]
+    CitationsDelta {},
 }
 
 #[derive(Deserialize)]

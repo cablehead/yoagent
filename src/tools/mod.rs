@@ -3,12 +3,14 @@ pub mod edit;
 pub mod file;
 pub mod list;
 pub mod search;
+pub mod web_search;
 
 pub use bash::BashTool;
 pub use edit::EditFileTool;
 pub use file::{ReadFileTool, WriteFileTool};
 pub use list::ListFilesTool;
 pub use search::SearchTool;
+pub use web_search::WebSearchTool;
 
 use crate::types::AgentTool;
 
