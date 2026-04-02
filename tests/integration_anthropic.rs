@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use yoagent::agent_loop::{agent_loop, AgentLoopConfig};
 use yoagent::provider::AnthropicProvider;
-use yoagent::tools;
+use yoagent::tools::{self, WebSearchTool};
 use yoagent::types::*;
 
 fn api_key() -> String {
@@ -221,5 +221,58 @@ async fn test_anthropic_multi_turn() {
     println!(
         "Context has {} messages after 2 turns",
         context.messages.len()
+    );
+}
+
+/// Web search — server-side tool, model searches and responds in one turn.
+#[tokio::test]
+#[ignore]
+async fn test_anthropic_web_search() {
+    let provider = AnthropicProvider;
+    let config = make_config(provider);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let cancel = CancellationToken::new();
+
+    let mut tools: Vec<Box<dyn AgentTool>> = tools::default_tools();
+    tools.push(Box::new(WebSearchTool));
+
+    let mut context = AgentContext {
+        system_prompt: "You are a helpful assistant. Be concise.".into(),
+        messages: Vec::new(),
+        tools,
+    };
+
+    let prompt = AgentMessage::Llm(Message::user(
+        "What is the current population of Toronto? Use web search.",
+    ));
+    let new_messages = agent_loop(vec![prompt], &mut context, &config, tx, cancel).await;
+
+    // Web search is a server-side tool -- the model should respond in a single
+    // turn with no local tool execution needed.
+    assert!(
+        has_assistant_message(&new_messages),
+        "Expected an assistant message"
+    );
+
+    let text = extract_assistant_text(&new_messages);
+    assert!(!text.is_empty(), "Expected non-empty text response");
+    // The response should contain population-related content
+    assert!(
+        text.contains("Toronto") || text.contains("population") || text.contains("million"),
+        "Expected response about Toronto's population, got: {}",
+        text
+    );
+    println!("Response: {}", text);
+
+    // Verify no local tool execution happened (web search is server-side)
+    let mut got_tool_execution = false;
+    while let Ok(event) = rx.try_recv() {
+        if matches!(event, AgentEvent::ToolExecutionStart { .. }) {
+            got_tool_execution = true;
+        }
+    }
+    assert!(
+        !got_tool_execution,
+        "Web search should not trigger local tool execution"
     );
 }
