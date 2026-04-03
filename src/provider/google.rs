@@ -105,7 +105,7 @@ impl StreamProvider for GoogleProvider {
                                 let chunk: GoogleChunk = match serde_json::from_str(data) {
                                     Ok(c) => c,
                                     Err(e) => {
-                                        debug!("Failed to parse Google chunk: {}", e);
+                                        debug!("Failed to parse Google chunk: {} data={}", e, data);
                                         continue;
                                     }
                                 };
@@ -136,8 +136,14 @@ impl StreamProvider for GoogleProvider {
                                                 });
                                             }
                                             if let Some(fc) = &part.function_call {
-                                                let id = format!("google-fc-{}", content.len());
-                                                let args = fc.args.clone().unwrap_or(serde_json::Value::Object(Default::default()));
+                                                let id = fc.id.clone().unwrap_or_else(|| format!("google-fc-{}", content.len()));
+                                                let mut args = fc.args.clone().unwrap_or(serde_json::Value::Object(Default::default()));
+                                                // Store thought signature for round-tripping
+                                                if let Some(sig) = &part.thought_signature {
+                                                    if let Some(obj) = args.as_object_mut() {
+                                                        obj.insert("__thought_signature".into(), serde_json::Value::String(sig.clone()));
+                                                    }
+                                                }
                                                 let idx = content.len();
                                                 content.push(Content::ToolCall {
                                                     id: id.clone(),
@@ -155,11 +161,15 @@ impl StreamProvider for GoogleProvider {
                                         }
                                     }
                                     if let Some(reason) = &candidate.finish_reason {
-                                        stop_reason = match reason.as_str() {
-                                            "STOP" => StopReason::Stop,
-                                            "MAX_TOKENS" | "RECITATION" => StopReason::Length,
-                                            _ => StopReason::Stop,
-                                        };
+                                        // Don't override ToolUse -- Gemini returns "STOP"
+                                        // even when it emits function calls
+                                        if stop_reason != StopReason::ToolUse {
+                                            stop_reason = match reason.as_str() {
+                                                "STOP" => StopReason::Stop,
+                                                "MAX_TOKENS" | "RECITATION" => StopReason::Length,
+                                                _ => StopReason::Stop,
+                                            };
+                                        }
                                     }
                                 }
 
@@ -214,7 +224,7 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
                 }));
             }
             Message::ToolResult {
-                tool_call_id: _,
+                tool_call_id,
                 tool_name,
                 content,
                 ..
@@ -227,12 +237,15 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
                     })
                     .unwrap_or_default();
 
-                let mut parts = vec![serde_json::json!({
-                    "functionResponse": {
-                        "name": tool_name,
-                        "response": {"result": text},
-                    }
-                })];
+                let mut fr = serde_json::json!({
+                    "name": tool_name,
+                    "response": {"result": text},
+                });
+                // Include the function call ID if present (required by newer Gemini models)
+                if !tool_call_id.is_empty() && !tool_call_id.starts_with("google-fc-") {
+                    fr["id"] = serde_json::json!(tool_call_id);
+                }
+                let mut parts = vec![serde_json::json!({"functionResponse": fr})];
 
                 // Append image parts if present
                 for c in content {
@@ -301,6 +314,14 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
         if !tools.is_empty() {
             body["tools"] = serde_json::json!(tools);
         }
+
+        // When combining function tools with server-side tools (googleSearch),
+        // Gemini requires this config flag
+        if has_web_search && !declarations.is_empty() {
+            body["toolConfig"] = serde_json::json!({
+                "includeServerSideToolInvocations": true,
+            });
+        }
     }
 
     body
@@ -316,10 +337,27 @@ fn content_to_google_parts(content: &[Content]) -> Vec<serde_json::Value> {
                 "inlineData": {"mimeType": mime_type, "data": data},
             })),
             Content::ToolCall {
-                name, arguments, ..
-            } => Some(serde_json::json!({
-                "functionCall": {"name": name, "args": arguments},
-            })),
+                id,
+                name,
+                arguments,
+            } => {
+                let mut args = arguments.clone();
+                let thought_sig = args
+                    .as_object_mut()
+                    .and_then(|o| o.remove("__thought_signature"))
+                    .and_then(|v| v.as_str().map(|s| s.to_string()));
+                let mut fc = serde_json::json!({"name": name, "args": args});
+                if let Some(fc_id) = id.strip_prefix("google-fc-") {
+                    let _ = fc_id; // generated ID, don't include
+                } else if !id.is_empty() {
+                    fc["id"] = serde_json::json!(id);
+                }
+                let mut part = serde_json::json!({"functionCall": fc});
+                if let Some(sig) = thought_sig {
+                    part["thoughtSignature"] = serde_json::json!(sig);
+                }
+                Some(part)
+            }
             Content::Thinking { .. } => None,
         })
         .collect()
@@ -354,6 +392,8 @@ struct GooglePart {
     text: Option<String>,
     #[serde(default, rename = "functionCall")]
     function_call: Option<GoogleFunctionCall>,
+    #[serde(default, rename = "thoughtSignature")]
+    thought_signature: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -361,6 +401,8 @@ struct GoogleFunctionCall {
     name: String,
     #[serde(default)]
     args: Option<serde_json::Value>,
+    #[serde(default)]
+    id: Option<String>,
 }
 
 #[derive(Deserialize)]
