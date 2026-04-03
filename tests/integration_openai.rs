@@ -82,7 +82,7 @@ fn has_tool_execution(rx: &mut mpsc::UnboundedReceiver<AgentEvent>) -> bool {
 #[tokio::test]
 #[ignore]
 async fn test_openai_search_model_web_search_only() {
-    let config = make_config("gpt-4o-search-preview");
+    let config = make_config("gpt-5-search-api");
     let (tx, _rx) = mpsc::unbounded_channel();
     let cancel = CancellationToken::new();
 
@@ -109,7 +109,7 @@ async fn test_openai_search_model_web_search_only() {
 #[tokio::test]
 #[ignore]
 async fn test_openai_search_model_no_tools() {
-    let config = make_config("gpt-4o-search-preview");
+    let config = make_config("gpt-5-search-api");
     let (tx, _rx) = mpsc::unbounded_channel();
     let cancel = CancellationToken::new();
 
@@ -131,7 +131,7 @@ async fn test_openai_search_model_no_tools() {
 #[tokio::test]
 #[ignore]
 async fn test_openai_regular_model_with_tools() {
-    let config = make_config("gpt-4o");
+    let config = make_config("gpt-5.4-mini");
     let (tx, mut rx) = mpsc::unbounded_channel();
     let cancel = CancellationToken::new();
 
@@ -161,7 +161,7 @@ async fn test_openai_regular_model_with_tools() {
 #[tokio::test]
 #[ignore]
 async fn test_openai_regular_model_code_plus_websearch() {
-    let config = make_config("gpt-4o");
+    let config = make_config("gpt-5.4-mini");
     let (tx, mut rx) = mpsc::unbounded_channel();
     let cancel = CancellationToken::new();
 
@@ -193,7 +193,7 @@ async fn test_openai_regular_model_code_plus_websearch() {
 #[tokio::test]
 #[ignore]
 async fn test_openai_search_model_rejects_function_tools() {
-    let config = make_config("gpt-4o-search-preview");
+    let config = make_config("gpt-5-search-api");
     let (tx, _rx) = mpsc::unbounded_channel();
     let cancel = CancellationToken::new();
 
