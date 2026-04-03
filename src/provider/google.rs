@@ -84,14 +84,16 @@ impl StreamProvider for GoogleProvider {
                         Some(Ok(bytes)) => {
                             buffer.push_str(&String::from_utf8_lossy(&bytes));
 
-                            // Process complete SSE events
-                            while let Some(pos) = buffer.find("\n\n") {
+                            // Process complete SSE events (handle both \n\n and \r\n\r\n)
+                            while let Some(pos) = buffer.find("\n\n").or_else(|| buffer.find("\r\n\r\n")) {
+                                let sep_len = if buffer[pos..].starts_with("\r\n\r\n") { 4 } else { 2 };
                                 let event_str = buffer[..pos].to_string();
-                                buffer = buffer[pos + 2..].to_string();
+                                buffer = buffer[pos + sep_len..].to_string();
 
-                                // Parse SSE data line
+                                // Parse SSE data line (strip trailing \r)
                                 let data = event_str
                                     .lines()
+                                    .map(|l| l.trim_end_matches('\r'))
                                     .find(|l| l.starts_with("data: "))
                                     .map(|l| &l[6..])
                                     .unwrap_or("");
@@ -113,6 +115,10 @@ impl StreamProvider for GoogleProvider {
                                     if let Some(c) = &candidate.content {
                                         for part in &c.parts {
                                             if let Some(text) = &part.text {
+                                                // Skip empty text parts (sent during search/thinking)
+                                                if text.is_empty() {
+                                                    continue;
+                                                }
                                                 let text_idx = content.iter().position(|c| matches!(c, Content::Text { .. }));
                                                 let idx = match text_idx {
                                                     Some(i) => i,
@@ -267,9 +273,15 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
     }
 
     if !config.tools.is_empty() {
+        let has_web_search = config
+            .tools
+            .iter()
+            .any(|t| t.name == "web_search" && t.description == "server_tool");
+
         let declarations: Vec<serde_json::Value> = config
             .tools
             .iter()
+            .filter(|t| !(t.name == "web_search" && t.description == "server_tool"))
             .map(|t| {
                 serde_json::json!({
                     "name": t.name,
@@ -278,9 +290,17 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
                 })
             })
             .collect();
-        body["tools"] = serde_json::json!([{
-            "functionDeclarations": declarations,
-        }]);
+
+        let mut tools: Vec<serde_json::Value> = Vec::new();
+        if !declarations.is_empty() {
+            tools.push(serde_json::json!({"functionDeclarations": declarations}));
+        }
+        if has_web_search {
+            tools.push(serde_json::json!({"googleSearch": {}}));
+        }
+        if !tools.is_empty() {
+            body["tools"] = serde_json::json!(tools);
+        }
     }
 
     body
