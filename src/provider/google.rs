@@ -291,36 +291,25 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
             .iter()
             .any(|t| t.name == "web_search" && t.description == "server_tool");
 
-        let declarations: Vec<serde_json::Value> = config
-            .tools
-            .iter()
-            .filter(|t| !(t.name == "web_search" && t.description == "server_tool"))
-            .map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                })
-            })
-            .collect();
-
-        let mut tools: Vec<serde_json::Value> = Vec::new();
-        if !declarations.is_empty() {
-            tools.push(serde_json::json!({"functionDeclarations": declarations}));
-        }
         if has_web_search {
-            tools.push(serde_json::json!({"googleSearch": {}}));
-        }
-        if !tools.is_empty() {
-            body["tools"] = serde_json::json!(tools);
-        }
-
-        // When combining function tools with server-side tools (googleSearch),
-        // Gemini requires this config flag
-        if has_web_search && !declarations.is_empty() {
-            body["toolConfig"] = serde_json::json!({
-                "includeServerSideToolInvocations": true,
-            });
+            // Gemini ignores googleSearch when function declarations are present.
+            // Send googleSearch only.
+            body["tools"] = serde_json::json!([{"googleSearch": {}}]);
+        } else {
+            let declarations: Vec<serde_json::Value> = config
+                .tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    })
+                })
+                .collect();
+            if !declarations.is_empty() {
+                body["tools"] = serde_json::json!([{"functionDeclarations": declarations}]);
+            }
         }
     }
 
