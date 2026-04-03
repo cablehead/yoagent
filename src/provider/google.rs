@@ -112,6 +112,53 @@ impl StreamProvider for GoogleProvider {
 
                                 // Process candidates
                                 for candidate in &chunk.candidates.unwrap_or_default() {
+                                    // Capture grounding metadata (web search results)
+                                    if let Some(gm) = &candidate.grounding_metadata {
+                                        if let Some(queries) = &gm.web_search_queries {
+                                            let non_empty: Vec<&str> = queries.iter()
+                                                .map(|q| q.as_str())
+                                                .filter(|q| !q.is_empty())
+                                                .collect();
+                                            if !non_empty.is_empty() {
+                                                let sources: Vec<String> = gm.grounding_chunks
+                                                    .as_ref()
+                                                    .map(|chunks| {
+                                                        chunks.iter()
+                                                            .filter_map(|c| {
+                                                                let uri = c.get("web")?.get("uri")?.as_str()?;
+                                                                let title = c.get("web")?.get("title")?.as_str().unwrap_or("");
+                                                                Some(format!("[{}]({})", title, uri))
+                                                            })
+                                                            .collect()
+                                                    })
+                                                    .unwrap_or_default();
+
+                                                let mut note = format!("\n\n---\nSearched: {}", non_empty.join(", "));
+                                                if !sources.is_empty() {
+                                                    note.push_str("\nSources: ");
+                                                    note.push_str(&sources.join(", "));
+                                                }
+
+                                                // Append as text content
+                                                let idx = content.iter().position(|c| matches!(c, Content::Text { .. }));
+                                                let idx = match idx {
+                                                    Some(i) => i,
+                                                    None => {
+                                                        content.push(Content::Text { text: String::new() });
+                                                        content.len() - 1
+                                                    }
+                                                };
+                                                if let Some(Content::Text { text: t }) = content.get_mut(idx) {
+                                                    t.push_str(&note);
+                                                }
+                                                let _ = tx.send(StreamEvent::TextDelta {
+                                                    content_index: idx,
+                                                    delta: note,
+                                                });
+                                            }
+                                        }
+                                    }
+
                                     if let Some(c) = &candidate.content {
                                         for part in &c.parts {
                                             if let Some(text) = &part.text {
@@ -367,6 +414,18 @@ struct GoogleCandidate {
     content: Option<GoogleContent>,
     #[serde(default, rename = "finishReason")]
     finish_reason: Option<String>,
+    #[serde(default, rename = "groundingMetadata")]
+    grounding_metadata: Option<GoogleGroundingMetadata>,
+}
+
+#[derive(Deserialize)]
+struct GoogleGroundingMetadata {
+    #[serde(default, rename = "webSearchQueries")]
+    web_search_queries: Option<Vec<String>>,
+    #[serde(default, rename = "groundingChunks")]
+    grounding_chunks: Option<Vec<serde_json::Value>>,
+    #[serde(default, rename = "groundingSupports")]
+    grounding_supports: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
