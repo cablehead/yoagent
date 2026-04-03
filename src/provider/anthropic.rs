@@ -678,6 +678,7 @@ mod tests {
             cache_read: 900,
             cache_write: 0,
             total_tokens: 1050,
+            ..Default::default()
         };
         let rate = usage.cache_hit_rate();
         assert!((rate - 0.9).abs() < 0.001); // 900 / (100 + 900 + 0) = 0.9

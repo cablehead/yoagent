@@ -112,33 +112,31 @@ impl StreamProvider for GoogleProvider {
 
                                 // Process candidates
                                 for candidate in &chunk.candidates.unwrap_or_default() {
-                                    // Emit raw grounding metadata as JSON text
+                                    // Format grounding metadata as clean markdown
                                     if let Some(ref gm) = candidate.grounding_metadata {
-                                        if let Ok(raw) = serde_json::to_string(&gm.raw) {
-                                            if raw != "{}" {
-                                                let note = format!("\n\n---\ngroundingMetadata: {}", raw);
-                                                let idx = content
-                                                    .iter()
-                                                    .position(|c| matches!(c, Content::Text { .. }));
-                                                let idx = match idx {
-                                                    Some(i) => i,
-                                                    None => {
-                                                        content.push(Content::Text {
-                                                            text: String::new(),
-                                                        });
-                                                        content.len() - 1
-                                                    }
-                                                };
-                                                if let Some(Content::Text { text: t }) =
-                                                    content.get_mut(idx)
-                                                {
-                                                    t.push_str(&note);
+                                        let note = format_grounding_metadata(gm);
+                                        if !note.is_empty() {
+                                            let idx = content
+                                                .iter()
+                                                .position(|c| matches!(c, Content::Text { .. }));
+                                            let idx = match idx {
+                                                Some(i) => i,
+                                                None => {
+                                                    content.push(Content::Text {
+                                                        text: String::new(),
+                                                    });
+                                                    content.len() - 1
                                                 }
-                                                let _ = tx.send(StreamEvent::TextDelta {
-                                                    content_index: idx,
-                                                    delta: note,
-                                                });
+                                            };
+                                            if let Some(Content::Text { text: t }) =
+                                                content.get_mut(idx)
+                                            {
+                                                t.push_str(&note);
                                             }
+                                            let _ = tx.send(StreamEvent::TextDelta {
+                                                content_index: idx,
+                                                delta: note,
+                                            });
                                         }
                                     }
 
@@ -209,6 +207,10 @@ impl StreamProvider for GoogleProvider {
                                     usage.output = u.candidates_token_count.unwrap_or(0);
                                     usage.total_tokens = u.total_token_count.unwrap_or(0);
                                     usage.cache_read = u.cached_content_token_count.unwrap_or(0);
+                                    usage.thinking_tokens =
+                                        u.thoughts_token_count.unwrap_or(0);
+                                    usage.search_tokens =
+                                        u.tool_use_prompt_token_count.unwrap_or(0);
                                 }
                             }
                         }
@@ -401,18 +403,41 @@ struct GoogleCandidate {
     grounding_metadata: Option<GoogleGroundingMetadata>,
 }
 
+#[derive(Deserialize)]
 struct GoogleGroundingMetadata {
-    raw: serde_json::Value,
+    #[serde(default, rename = "webSearchQueries")]
+    web_search_queries: Option<Vec<String>>,
+    #[serde(default, rename = "groundingChunks")]
+    grounding_chunks: Option<Vec<serde_json::Value>>,
 }
 
-impl<'de> serde::Deserialize<'de> for GoogleGroundingMetadata {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let raw = serde_json::Value::deserialize(deserializer)?;
-        Ok(GoogleGroundingMetadata { raw })
+fn format_grounding_metadata(gm: &GoogleGroundingMetadata) -> String {
+    let queries = gm.web_search_queries.as_deref().unwrap_or(&[]);
+    if queries.is_empty() {
+        return String::new();
     }
+
+    let mut note = String::from("\n\n---\n*Searched: ");
+    note.push_str(&queries.join(", "));
+    note.push('*');
+
+    if let Some(chunks) = &gm.grounding_chunks {
+        let sources: Vec<String> = chunks
+            .iter()
+            .filter_map(|c| {
+                let web = c.get("web")?;
+                let uri = web.get("uri")?.as_str()?;
+                let title = web.get("title")?.as_str().unwrap_or(uri);
+                Some(format!("- [{}]({})", title, uri))
+            })
+            .collect();
+        if !sources.is_empty() {
+            note.push_str("\n\n**Sources:**\n");
+            note.push_str(&sources.join("\n"));
+        }
+    }
+
+    note
 }
 
 #[derive(Deserialize)]
@@ -450,6 +475,10 @@ struct GoogleUsageMetadata {
     total_token_count: Option<u64>,
     #[serde(default, rename = "cachedContentTokenCount")]
     cached_content_token_count: Option<u64>,
+    #[serde(default, rename = "thoughtsTokenCount")]
+    thoughts_token_count: Option<u64>,
+    #[serde(default, rename = "toolUsePromptTokenCount")]
+    tool_use_prompt_token_count: Option<u64>,
 }
 
 #[cfg(test)]

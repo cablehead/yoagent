@@ -47,6 +47,7 @@ fn test_message_assistant_roundtrip() {
             cache_read: 10,
             cache_write: 5,
             total_tokens: 165,
+            ..Default::default()
         },
         timestamp: 789,
         error_message: None,

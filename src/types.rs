@@ -177,6 +177,14 @@ pub struct Usage {
     pub cache_write: u64,
     #[serde(default)]
     pub total_tokens: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub thinking_tokens: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub search_tokens: u64,
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
 }
 
 impl Usage {
