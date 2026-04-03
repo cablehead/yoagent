@@ -217,6 +217,7 @@ impl StreamProvider for OpenAiCompatProvider {
             usage,
             timestamp: now_ms(),
             error_message: None,
+            metadata: None,
         };
 
         let _ = tx.send(StreamEvent::Done {
@@ -600,6 +601,7 @@ mod tests {
                     usage: Usage::default(),
                     timestamp: 0,
                     error_message: None,
+                    metadata: None,
                 },
                 Message::ToolResult {
                     tool_call_id: "call-1".into(),

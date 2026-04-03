@@ -132,6 +132,60 @@ async fn test_gemini_web_search() {
     println!("Response: {}", text);
 }
 
+/// Web search returns grounding metadata on the assistant message.
+#[tokio::test]
+#[ignore]
+async fn test_gemini_web_search_has_grounding_metadata() {
+    let config = make_config("gemini-3-flash-preview");
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let cancel = CancellationToken::new();
+
+    let mut context = AgentContext {
+        system_prompt: "Be concise.".into(),
+        messages: Vec::new(),
+        tools: vec![Box::new(WebSearchTool)],
+    };
+
+    let prompt = AgentMessage::Llm(Message::user("What is the population of Tokyo?"));
+    let new_messages = agent_loop(vec![prompt], &mut context, &config, tx, cancel).await;
+
+    // Find the assistant message
+    let assistant = new_messages.iter().find_map(|m| match m {
+        AgentMessage::Llm(Message::Assistant { metadata, .. }) => Some(metadata),
+        _ => None,
+    });
+
+    let metadata = assistant
+        .expect("Expected an assistant message")
+        .as_ref()
+        .expect("Expected metadata on assistant message");
+
+    // Should have webSearchQueries
+    let queries = metadata["webSearchQueries"].as_array();
+    assert!(
+        queries.is_some_and(|q| !q.is_empty()),
+        "Expected webSearchQueries in metadata, got: {}",
+        metadata
+    );
+
+    // Should have groundingChunks with web sources
+    let chunks = metadata["groundingChunks"].as_array();
+    assert!(
+        chunks.is_some_and(|c| !c.is_empty()),
+        "Expected groundingChunks in metadata, got: {}",
+        metadata
+    );
+
+    // Text should NOT contain raw grounding JSON
+    let text = extract_assistant_text(&new_messages);
+    assert!(
+        !text.contains("groundingMetadata"),
+        "Text should not contain raw grounding JSON"
+    );
+
+    println!("Metadata: {}", metadata);
+}
+
 /// Web search + function tools together.
 #[tokio::test]
 #[ignore]

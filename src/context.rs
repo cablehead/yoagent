@@ -679,6 +679,7 @@ mod tests {
                 },
                 timestamp: 0,
                 error_message: None,
+                metadata: None,
             }),
             AgentMessage::Llm(Message::user("Follow up question here")),
         ];

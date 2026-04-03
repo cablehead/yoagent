@@ -175,6 +175,7 @@ impl StreamProvider for AzureOpenAiProvider {
             usage,
             timestamp: now_ms(),
             error_message: None,
+            metadata: None,
         };
 
         let _ = tx.send(StreamEvent::Done {

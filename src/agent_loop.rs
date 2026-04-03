@@ -541,6 +541,7 @@ async fn stream_assistant_response(
                             usage: Usage::default(),
                             timestamp: now_ms(),
                             error_message: None,
+                            metadata: None,
                         });
                         partial_message = Some(placeholder.clone());
                         event_tx
@@ -648,6 +649,7 @@ async fn stream_assistant_response(
                 usage: Usage::default(),
                 timestamp: now_ms(),
                 error_message: Some(e.to_string()),
+                metadata: None,
             }
         }
     }

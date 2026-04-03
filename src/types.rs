@@ -54,6 +54,9 @@ pub enum Message {
         timestamp: u64,
         #[serde(skip_serializing_if = "Option::is_none")]
         error_message: Option<String>,
+        /// Provider-specific metadata (e.g. Gemini grounding, Anthropic citations)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        metadata: Option<serde_json::Value>,
     },
     #[serde(rename = "toolResult")]
     ToolResult {

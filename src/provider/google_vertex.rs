@@ -264,6 +264,7 @@ async fn parse_google_sse_response(
         usage,
         timestamp: now_ms(),
         error_message: None,
+        metadata: None,
     };
 
     let _ = tx.send(StreamEvent::Done {

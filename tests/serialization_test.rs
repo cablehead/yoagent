@@ -51,6 +51,7 @@ fn test_message_assistant_roundtrip() {
         },
         timestamp: 789,
         error_message: None,
+        metadata: None,
     };
     roundtrip(&msg);
 }
@@ -132,6 +133,7 @@ fn test_full_conversation_roundtrip() {
             usage: Usage::default(),
             timestamp: 100,
             error_message: None,
+            metadata: None,
         }),
         AgentMessage::Llm(Message::ToolResult {
             tool_call_id: "tc-1".into(),
@@ -152,6 +154,7 @@ fn test_full_conversation_roundtrip() {
             usage: Usage::default(),
             timestamp: 300,
             error_message: None,
+            metadata: None,
         }),
         AgentMessage::Extension(ExtensionMessage::new(
             "ui_event",

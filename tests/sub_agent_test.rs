@@ -307,6 +307,7 @@ async fn test_sub_agent_parallel() {
                 usage: Usage::default(),
                 timestamp: yoagent::now_ms(),
                 error_message: None,
+                metadata: None,
             };
             let _ = tx.send(yoagent::provider::StreamEvent::Done {
                 message: msg.clone(),
