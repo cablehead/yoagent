@@ -240,6 +240,8 @@ impl StreamProvider for AnthropicProvider {
             stop_reason = StopReason::ToolUse;
         }
 
+        usage.total_tokens = usage.input + usage.output + usage.cache_read + usage.cache_write;
+
         let metadata = if citations.is_empty() {
             None
         } else {
