@@ -105,7 +105,7 @@ impl StreamProvider for GoogleProvider {
                                 let chunk: GoogleChunk = match serde_json::from_str(data) {
                                     Ok(c) => c,
                                     Err(e) => {
-                                        debug!("Failed to parse Google chunk: {}", e);
+                                        debug!("Failed to parse Google chunk: {} data={}", e, data);
                                         continue;
                                     }
                                 };
@@ -115,7 +115,7 @@ impl StreamProvider for GoogleProvider {
                                     if let Some(c) = &candidate.content {
                                         for part in &c.parts {
                                             if let Some(text) = &part.text {
-                                                // Skip empty text parts (sent during thinking)
+                                                // Skip empty text parts (sent during search/thinking)
                                                 if text.is_empty() {
                                                     continue;
                                                 }
@@ -286,9 +286,15 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
     }
 
     if !config.tools.is_empty() {
+        let has_web_search = config
+            .tools
+            .iter()
+            .any(|t| t.name == "web_search" && t.description == "server_tool");
+
         let declarations: Vec<serde_json::Value> = config
             .tools
             .iter()
+            .filter(|t| !(t.name == "web_search" && t.description == "server_tool"))
             .map(|t| {
                 serde_json::json!({
                     "name": t.name,
@@ -297,9 +303,25 @@ fn build_request_body(config: &StreamConfig) -> serde_json::Value {
                 })
             })
             .collect();
-        body["tools"] = serde_json::json!([{
-            "functionDeclarations": declarations,
-        }]);
+
+        let mut tools: Vec<serde_json::Value> = Vec::new();
+        if !declarations.is_empty() {
+            tools.push(serde_json::json!({"functionDeclarations": declarations}));
+        }
+        if has_web_search {
+            tools.push(serde_json::json!({"googleSearch": {}}));
+        }
+        if !tools.is_empty() {
+            body["tools"] = serde_json::json!(tools);
+        }
+
+        // When combining function tools with server-side tools (googleSearch),
+        // Gemini requires this config flag
+        if has_web_search && !declarations.is_empty() {
+            body["toolConfig"] = serde_json::json!({
+                "includeServerSideToolInvocations": true,
+            });
+        }
     }
 
     body
@@ -325,7 +347,9 @@ fn content_to_google_parts(content: &[Content]) -> Vec<serde_json::Value> {
                     .and_then(|o| o.remove("__thought_signature"))
                     .and_then(|v| v.as_str().map(|s| s.to_string()));
                 let mut fc = serde_json::json!({"name": name, "args": args});
-                if !id.starts_with("google-fc-") && !id.is_empty() {
+                if let Some(fc_id) = id.strip_prefix("google-fc-") {
+                    let _ = fc_id; // generated ID, don't include
+                } else if !id.is_empty() {
                     fc["id"] = serde_json::json!(id);
                 }
                 let mut part = serde_json::json!({"functionCall": fc});

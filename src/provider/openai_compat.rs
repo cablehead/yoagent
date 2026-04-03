@@ -347,9 +347,12 @@ fn build_request_body(
     }
 
     if !config.tools.is_empty() {
+        // Filter out server-side tools (e.g. web_search) -- OpenAI handles
+        // search via dedicated models, not tool definitions.
         let tools: Vec<serde_json::Value> = config
             .tools
             .iter()
+            .filter(|t| !(t.name == "web_search" && t.description == "server_tool"))
             .map(|t| {
                 serde_json::json!({
                     "type": "function",
@@ -361,7 +364,9 @@ fn build_request_body(
                 })
             })
             .collect();
-        body["tools"] = serde_json::json!(tools);
+        if !tools.is_empty() {
+            body["tools"] = serde_json::json!(tools);
+        }
     }
 
     if config.thinking_level != ThinkingLevel::Off && compat.supports_reasoning_effort {

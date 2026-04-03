@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use yoagent::agent_loop::{agent_loop, AgentLoopConfig};
 use yoagent::provider::{GoogleProvider, ModelConfig};
-use yoagent::tools;
+use yoagent::tools::{self, WebSearchTool};
 use yoagent::types::*;
 
 fn api_key() -> String {
@@ -83,6 +83,75 @@ async fn test_gemini_simple_text() {
     };
 
     let prompt = AgentMessage::Llm(Message::user("What color is the sky?"));
+    let new_messages = agent_loop(vec![prompt], &mut context, &config, tx, cancel).await;
+
+    let text = extract_assistant_text(&new_messages);
+    assert!(!text.is_empty(), "Expected non-empty response");
+    println!("Response: {}", text);
+}
+
+/// Web search with Gemini -- grounding via googleSearch tool.
+#[tokio::test]
+#[ignore]
+async fn test_gemini_web_search() {
+    let config = make_config("gemini-3-flash-preview");
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let cancel = CancellationToken::new();
+
+    let mut context = AgentContext {
+        system_prompt: "Be concise.".into(),
+        messages: Vec::new(),
+        tools: vec![Box::new(WebSearchTool)],
+    };
+
+    let prompt = AgentMessage::Llm(Message::user(
+        "What is the current population of Toronto in 2026?",
+    ));
+    let new_messages = agent_loop(vec![prompt], &mut context, &config, tx, cancel).await;
+
+    let text = extract_assistant_text(&new_messages);
+    assert!(!text.is_empty(), "Expected non-empty response");
+    assert!(
+        text.contains("Toronto") || text.contains("population") || text.contains("million"),
+        "Expected response about Toronto's population, got: {}",
+        text
+    );
+
+    // No local tool execution (search is server-side)
+    let mut got_tool_execution = false;
+    while let Ok(event) = rx.try_recv() {
+        if matches!(event, AgentEvent::ToolExecutionStart { .. }) {
+            got_tool_execution = true;
+        }
+    }
+    assert!(
+        !got_tool_execution,
+        "Web search should not trigger local tool execution"
+    );
+
+    println!("Response: {}", text);
+}
+
+/// Web search + function tools together.
+#[tokio::test]
+#[ignore]
+async fn test_gemini_web_search_with_function_tools() {
+    let config = make_config("gemini-3-flash-preview");
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let cancel = CancellationToken::new();
+
+    let mut tools: Vec<Box<dyn AgentTool>> = tools::default_tools();
+    tools.push(Box::new(WebSearchTool));
+
+    let mut context = AgentContext {
+        system_prompt: "Be concise.".into(),
+        messages: Vec::new(),
+        tools,
+    };
+
+    let prompt = AgentMessage::Llm(Message::user(
+        "What is the current population of Toronto in 2026?",
+    ));
     let new_messages = agent_loop(vec![prompt], &mut context, &config, tx, cancel).await;
 
     let text = extract_assistant_text(&new_messages);
