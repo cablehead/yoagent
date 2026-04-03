@@ -58,6 +58,7 @@ impl StreamProvider for AnthropicProvider {
         let mut content: Vec<Content> = Vec::new();
         let mut usage = Usage::default();
         let mut stop_reason = StopReason::Stop;
+        let mut citations: Vec<serde_json::Value> = Vec::new();
 
         let _ = tx.send(StreamEvent::Start);
 
@@ -171,8 +172,10 @@ impl StreamProvider for AnthropicProvider {
                                                     *s = Some(signature);
                                                 }
                                             }
-                                            AnthropicDelta::CitationsDelta { .. } => {
-                                                // Skip citation deltas for now
+                                            AnthropicDelta::CitationsDelta { citation } => {
+                                                if let Some(c) = citation {
+                                                    citations.push(c);
+                                                }
                                             }
                                         }
                                     }
@@ -237,6 +240,12 @@ impl StreamProvider for AnthropicProvider {
             stop_reason = StopReason::ToolUse;
         }
 
+        let metadata = if citations.is_empty() {
+            None
+        } else {
+            Some(serde_json::json!({ "citations": citations }))
+        };
+
         let message = Message::Assistant {
             content,
             stop_reason,
@@ -245,7 +254,7 @@ impl StreamProvider for AnthropicProvider {
             usage,
             timestamp: now_ms(),
             error_message: None,
-            metadata: None,
+            metadata,
         };
 
         let _ = tx.send(StreamEvent::Done {
@@ -548,7 +557,10 @@ enum AnthropicDelta {
     #[serde(rename = "signature_delta")]
     SignatureDelta { signature: String },
     #[serde(rename = "citations_delta")]
-    CitationsDelta {},
+    CitationsDelta {
+        #[serde(default)]
+        citation: Option<serde_json::Value>,
+    },
 }
 
 #[derive(Deserialize)]
